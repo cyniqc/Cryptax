@@ -8,6 +8,8 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%237c3aed'/%3E%3Cstop offset='100%25' stop-color='%2306b6d4'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='30' fill='url(%23g)'/%3E%3Ctext x='32' y='44' text-anchor='middle' font-family='Arial,sans-serif' font-weight='bold' font-size='32' fill='white'%3E₿%3C/text%3E%3C/svg%3E">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js"></script>
   <style>
     /* ============================================================
        DESIGN SYSTEM
@@ -537,6 +539,16 @@
       to { opacity: 1; transform: scale(1) translateY(0); }
     }
 
+    .btn-export {
+      background: linear-gradient(135deg, #06b6d4, #0891b2);
+      color: white;
+      box-shadow: 0 4px 16px rgba(6, 182, 212, 0.3);
+    }
+    .btn-export:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 24px rgba(6, 182, 212, 0.45);
+    }
+
     /* ============================================================
        DISCLAIMER
        ============================================================ */
@@ -776,6 +788,12 @@
               <span>Le PBR/ACB de chaque actif inclut vos achats et les récompenses de staking reçues (évaluées à la juste valeur marchande). Conservez ces données pour vos déclarations futures.</span>
             </li>
           </ul>
+        </div>
+
+        <div class="btn-group" style="margin-top:28px">
+          <button class="btn btn-export" id="export-btn" onclick="exportPDF()">
+            📄 Exporter le rapport PDF
+          </button>
         </div>
       </div>
 
@@ -1435,6 +1453,256 @@ async function runCalculation() {
   } finally {
     showLoading(false);
   }
+}
+
+// ================================================================
+//  PDF EXPORT
+// ================================================================
+function exportPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const margin = 18;
+  const contentW = pageW - margin * 2;
+  let y = margin;
+
+  // ── Colors ──
+  const purple = [124, 58, 237];
+  const cyan = [6, 182, 212];
+  const dark = [13, 17, 23];
+  const gray = [148, 163, 184];
+  const green = [16, 185, 129];
+
+  // ── Helper: add page if needed ──
+  function checkPage(needed) {
+    if (y + needed > doc.internal.pageSize.getHeight() - 20) {
+      doc.addPage();
+      y = margin;
+    }
+  }
+
+  // ── Gather data ──
+  const assets = Object.keys(state.acbByAsset).sort();
+  let totalInvested = 0;
+  let totalStakingCAD = 0;
+  for (const a of assets) totalInvested += state.acbByAsset[a].totalCost;
+  for (const a of Object.keys(state.stakingIncome)) {
+    totalStakingCAD += state.stakingIncome[a].totalCAD;
+  }
+
+  // ════════════════════════════════════════════
+  //  HEADER
+  // ════════════════════════════════════════════
+  doc.setFillColor(...dark);
+  doc.rect(0, 0, pageW, 38, 'F');
+
+  // Gradient line
+  const gradSteps = 60;
+  for (let i = 0; i < gradSteps; i++) {
+    const t = i / gradSteps;
+    const r = Math.round(purple[0] + (cyan[0] - purple[0]) * t);
+    const g = Math.round(purple[1] + (cyan[1] - purple[1]) * t);
+    const b = Math.round(purple[2] + (cyan[2] - purple[2]) * t);
+    doc.setFillColor(r, g, b);
+    doc.rect(margin + (contentW * i / gradSteps), 36, contentW / gradSteps + 0.5, 2, 'F');
+  }
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(22);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Cryptax', margin, 18);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Rapport fiscal crypto — Canada / Québec', margin, 26);
+
+  doc.setTextColor(...gray);
+  doc.setFontSize(9);
+  doc.text('Année d\'imposition 2025', pageW - margin, 18, { align: 'right' });
+  doc.text('Généré le ' + new Date().toLocaleDateString('fr-CA'), pageW - margin, 24, { align: 'right' });
+
+  y = 46;
+
+  // ════════════════════════════════════════════
+  //  SUMMARY SECTION
+  // ════════════════════════════════════════════
+  doc.setTextColor(60, 60, 80);
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Résumé fiscal', margin, y);
+  y += 8;
+
+  // Summary boxes
+  const summaryItems = [
+    { label: 'Revenu de staking à déclarer', value: formatCAD(totalStakingCAD), color: green },
+    { label: 'Gains en capital', value: '0,00 $', color: [245, 158, 11] },
+    { label: 'Coût total du portefeuille (ACB)', value: formatCAD(totalInvested), color: purple },
+  ];
+
+  const boxW = (contentW - 8) / 3;
+  summaryItems.forEach((item, i) => {
+    const bx = margin + i * (boxW + 4);
+    doc.setFillColor(245, 247, 250);
+    doc.roundedRect(bx, y, boxW, 22, 2, 2, 'F');
+    doc.setFillColor(...item.color);
+    doc.rect(bx, y, 1.5, 22, 'F');
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...gray);
+    doc.text(item.label.toUpperCase(), bx + 6, y + 7);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...item.color);
+    doc.text(item.value, bx + 6, y + 17);
+  });
+  y += 30;
+
+  // ════════════════════════════════════════════
+  //  ACB TABLE
+  // ════════════════════════════════════════════
+  doc.setTextColor(60, 60, 80);
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Prix de base rajusté (PBR/ACB) par actif', margin, y);
+  y += 3;
+
+  const acbRows = assets.map(a => {
+    const acb = state.acbByAsset[a];
+    return [a, formatCrypto(acb.totalUnits), formatCAD(acb.totalCost), formatCAD(acb.acbPerUnit)];
+  });
+
+  doc.autoTable({
+    startY: y,
+    margin: { left: margin, right: margin },
+    head: [['Actif', 'Quantité totale', 'Coût total (CAD)', 'ACB / unité (CAD)']],
+    body: acbRows,
+    theme: 'grid',
+    headStyles: { fillColor: [...purple], fontStyle: 'bold', fontSize: 8, cellPadding: 4 },
+    bodyStyles: { fontSize: 8.5, cellPadding: 3.5 },
+    columnStyles: {
+      0: { fontStyle: 'bold' },
+      1: { halign: 'right' },
+      2: { halign: 'right' },
+      3: { halign: 'right', fontStyle: 'bold' },
+    },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+  });
+  y = doc.lastAutoTable.finalY + 10;
+
+  // ════════════════════════════════════════════
+  //  STAKING INCOME
+  // ════════════════════════════════════════════
+  checkPage(50);
+  doc.setTextColor(60, 60, 80);
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Revenu de staking', margin, y);
+  y += 3;
+
+  // Monthly breakdown grouped
+  const stakingAssets = Object.keys(state.stakingIncome).sort();
+  const monthlyMap = {};
+  for (const a of stakingAssets) {
+    for (const r of state.stakingIncome[a].rewards) {
+      const key = r.date.getFullYear() + '-' + String(r.date.getMonth() + 1).padStart(2, '0');
+      if (!monthlyMap[key]) monthlyMap[key] = {};
+      if (!monthlyMap[key][a]) monthlyMap[key][a] = 0;
+      monthlyMap[key][a] += r.valueCAD;
+    }
+  }
+  const months = Object.keys(monthlyMap).sort();
+
+  const stakingHead = ['Mois', ...stakingAssets, 'Total'];
+  const stakingRows = months.map(m => {
+    const [yr, mo] = m.split('-');
+    const monthLabel = MONTH_NAMES_FR[parseInt(mo) - 1] + ' ' + yr;
+    let rowTotal = 0;
+    const cols = stakingAssets.map(a => {
+      const val = monthlyMap[m][a] || 0;
+      rowTotal += val;
+      return formatCAD(val);
+    });
+    return [monthLabel, ...cols, formatCAD(rowTotal)];
+  });
+
+  // Grand total row
+  const grandTotalCols = stakingAssets.map(a => formatCAD(state.stakingIncome[a].totalCAD));
+  stakingRows.push(['TOTAL', ...grandTotalCols, formatCAD(totalStakingCAD)]);
+
+  doc.autoTable({
+    startY: y,
+    margin: { left: margin, right: margin },
+    head: [stakingHead],
+    body: stakingRows,
+    theme: 'grid',
+    headStyles: { fillColor: [...green], fontStyle: 'bold', fontSize: 8, cellPadding: 4 },
+    bodyStyles: { fontSize: 8.5, cellPadding: 3.5 },
+    columnStyles: Object.fromEntries(
+      stakingHead.map((_, i) => [i, i === 0 ? {} : { halign: 'right' }])
+    ),
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    didParseCell: function (data) {
+      // Bold the total row
+      if (data.row.index === stakingRows.length - 1) {
+        data.cell.styles.fontStyle = 'bold';
+        data.cell.styles.fillColor = [240, 253, 244];
+      }
+    },
+  });
+  y = doc.lastAutoTable.finalY + 12;
+
+  // ════════════════════════════════════════════
+  //  WHERE TO REPORT
+  // ════════════════════════════════════════════
+  checkPage(60);
+  doc.setTextColor(60, 60, 80);
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Où déclarer', margin, y);
+  y += 8;
+
+  const reportingNotes = [
+    ['Revenu de staking', 'Fédéral (T1) : Ligne 13000 — Autres revenus\nQuébec (TP-1) : Ligne 154 — Autres revenus'],
+    ['Gains en capital', 'Aucune disposition en 2025 — pas de gain/perte en capital à déclarer.'],
+    ['ACB (PBR)', 'Le PBR/ACB de chaque actif inclut vos achats et les récompenses de staking\nreçues (évaluées à la juste valeur marchande). Conservez ces données pour\nvos déclarations futures.'],
+  ];
+
+  doc.autoTable({
+    startY: y,
+    margin: { left: margin, right: margin },
+    body: reportingNotes,
+    theme: 'plain',
+    bodyStyles: { fontSize: 8.5, cellPadding: { top: 4, bottom: 4, left: 4, right: 4 } },
+    columnStyles: {
+      0: { fontStyle: 'bold', cellWidth: 40 },
+      1: { textColor: [100, 100, 120] },
+    },
+    didParseCell: function (data) {
+      if (data.row.index < reportingNotes.length) {
+        data.cell.styles.lineWidth = { bottom: 0.1 };
+        data.cell.styles.lineColor = [230, 230, 240];
+      }
+    },
+  });
+  y = doc.lastAutoTable.finalY + 12;
+
+  // ════════════════════════════════════════════
+  //  FOOTER
+  // ════════════════════════════════════════════
+  checkPage(18);
+  doc.setDrawColor(220, 220, 230);
+  doc.line(margin, y, pageW - margin, y);
+  y += 6;
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'italic');
+  doc.setTextColor(...gray);
+  doc.text('Ce document est fourni à titre informatif seulement. Ce n\'est pas un avis fiscal professionnel.', margin, y);
+  y += 4;
+  doc.text('Consultez un comptable ou un fiscaliste pour votre situation particulière.', margin, y);
+  y += 4;
+  doc.text('Prix historiques fournis par CoinGecko (coingecko.com). Généré par Cryptax.', margin, y);
+
+  // ── Save ──
+  doc.save('Cryptax_Rapport_Fiscal_2025.pdf');
 }
 
 // ================================================================
