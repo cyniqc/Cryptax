@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cryptax — Calculateur d'impôt crypto Canada/Québec</title>
   <meta name="description" content="Calculez votre prix de base rajusté (PBR/ACB) et votre revenu de staking pour vos déclarations d'impôt canadiennes et québécoises.">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%237c3aed'/%3E%3Cstop offset='100%25' stop-color='%2306b6d4'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='30' fill='url(%23g)'/%3E%3Ctext x='32' y='44' text-anchor='middle' font-family='Arial,sans-serif' font-weight='bold' font-size='32' fill='white'%3E₿%3C/text%3E%3C/svg%3E">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <style>
@@ -97,6 +98,14 @@
       -webkit-text-fill-color: transparent;
       background-clip: text;
       margin-bottom: 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+    }
+    header h1 .logo-icon {
+      width: 48px;
+      height: 48px;
+      flex-shrink: 0;
     }
     header p {
       color: var(--text-secondary);
@@ -466,6 +475,69 @@
     }
 
     /* ============================================================
+       SUCCESS MODAL
+       ============================================================ */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(6, 7, 14, 0.75);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+      backdrop-filter: blur(6px);
+      animation: fadeIn 0.3s ease;
+    }
+    .modal {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-accent);
+      border-radius: var(--radius-lg);
+      padding: 36px 40px;
+      max-width: 420px;
+      width: 90%;
+      text-align: center;
+      box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5), var(--shadow-glow-purple);
+      animation: modalIn 0.35s ease;
+    }
+    .modal .modal-icon {
+      font-size: 3rem;
+      margin-bottom: 16px;
+    }
+    .modal h2 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: var(--accent-green);
+    }
+    .modal p {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      margin-bottom: 24px;
+      line-height: 1.5;
+    }
+    .modal .btn-modal {
+      padding: 10px 36px;
+      border: none;
+      border-radius: var(--radius-sm);
+      background: var(--gradient-green);
+      color: white;
+      font-family: inherit;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
+    }
+    .modal .btn-modal:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 24px rgba(16, 185, 129, 0.45);
+    }
+    @keyframes modalIn {
+      from { opacity: 0; transform: scale(0.92) translateY(10px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    /* ============================================================
        DISCLAIMER
        ============================================================ */
     .disclaimer {
@@ -562,7 +634,19 @@
 
     <!-- HEADER -->
     <header>
-      <h1>🪙 Cryptax</h1>
+      <h1>
+        <svg class="logo-icon" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="coinGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#7c3aed"/>
+              <stop offset="100%" stop-color="#06b6d4"/>
+            </linearGradient>
+          </defs>
+          <circle cx="32" cy="32" r="30" fill="url(#coinGrad)"/>
+          <text x="32" y="44" text-anchor="middle" font-family="Arial,sans-serif" font-weight="bold" font-size="32" fill="white">₿</text>
+        </svg>
+        Cryptax
+      </h1>
       <p>Calculateur d'impôt crypto — Canada / Québec 2025</p>
     </header>
 
@@ -1039,6 +1123,29 @@ function showStatus(type, message) {
   el.innerHTML = `<div class="status-msg ${type}">${message}</div>`;
 }
 
+function showSuccessModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'success-modal';
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-icon">✅</div>
+      <h2>Calcul terminé avec succès !</h2>
+      <p>Vos données ont été traitées. Consultez les onglets ci-dessous pour voir vos résultats.</p>
+      <button class="btn-modal" onclick="closeSuccessModal()">OK</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeSuccessModal();
+  });
+}
+
+function closeSuccessModal() {
+  const modal = document.getElementById('success-modal');
+  if (modal) modal.remove();
+}
+
 function showLoading(show) {
   document.getElementById('loading').style.display = show ? 'flex' : 'none';
 }
@@ -1320,7 +1427,7 @@ async function runCalculation() {
     document.getElementById('results-section').style.display = 'block';
     document.getElementById('results-section').classList.add('animate-in');
 
-    showStatus('success', '✅ Calcul terminé avec succès !');
+    showSuccessModal();
 
   } catch (err) {
     console.error('Calculation error:', err);
