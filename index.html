@@ -1025,6 +1025,7 @@ function calculateACB() {
   for (const t of state.trades) {
     if (t.side !== 'BUY') continue;
     const netUnits = t.amount - t.fee; // fee deducted from received amount
+    const feeCAD = t.fee * t.price;    // fee converted to CAD
     events.push({
       date: t.date,
       asset: t.asset,
@@ -1032,6 +1033,8 @@ function calculateACB() {
       units: netUnits,
       costCAD: t.value, // what was paid in CAD
       pricePerUnit: t.price,
+      feeCAD: feeCAD,
+      txId: t.txId || '—',
     });
   }
 
@@ -1057,6 +1060,8 @@ function calculateACB() {
       units: r.amount,
       costCAD: costCAD,
       pricePerUnit: priceCAD,
+      feeCAD: 0,
+      txId: '—',
     });
   }
 
@@ -1079,6 +1084,9 @@ function calculateACB() {
       source: ev.source,
       units: ev.units,
       costCAD: ev.costCAD,
+      pricePerUnit: ev.pricePerUnit,
+      feeCAD: ev.feeCAD,
+      txId: ev.txId,
       runningUnits: acb.totalUnits,
       runningCost: acb.totalCost,
       runningACB: acb.acbPerUnit,
@@ -1700,6 +1708,133 @@ function exportPDF() {
   doc.text('Consultez un comptable ou un fiscaliste pour votre situation particulière.', margin, y);
   y += 4;
   doc.text('Prix historiques fournis par CoinGecko (coingecko.com). Généré par Cryptax.', margin, y);
+
+  // ════════════════════════════════════════════
+  //  APPENDIX — AUDIT TRAIL
+  // ════════════════════════════════════════════
+  doc.addPage();
+  y = margin;
+
+  // Appendix header bar
+  doc.setFillColor(...dark);
+  doc.rect(0, 0, pageW, 28, 'F');
+  // Gradient line
+  for (let i = 0; i < gradSteps; i++) {
+    const t = i / gradSteps;
+    const r = Math.round(purple[0] + (cyan[0] - purple[0]) * t);
+    const g = Math.round(purple[1] + (cyan[1] - purple[1]) * t);
+    const b = Math.round(purple[2] + (cyan[2] - purple[2]) * t);
+    doc.setFillColor(r, g, b);
+    doc.rect(margin + (contentW * i / gradSteps), 26, contentW / gradSteps + 0.5, 2, 'F');
+  }
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Annexe — Journal des transactions détaillé', margin, 17);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...gray);
+  doc.text('Pièce justificative pour vérification fiscale', pageW - margin, 17, { align: 'right' });
+  y = 36;
+
+  // Build unified event list sorted by date
+  let auditRows = [];
+  for (const a of assets) {
+    for (const h of state.acbByAsset[a].history) {
+      auditRows.push(h);
+    }
+  }
+  auditRows.sort((a, b) => a.date - b.date);
+
+  // Format for PDF table
+  const auditHead = [[
+    'Date / Heure',
+    'Type',
+    'Actif',
+    'Quantité',
+    'JVM Unit.\n(CAD)',
+    'Frais\n(CAD)',
+    'Montant Total\n(CAD)',
+    'PBR Courant\n(CAD)',
+    'TxID'
+  ]];
+
+  const auditBody = auditRows.map(row => [
+    row.date.toISOString().replace('T', '\n').replace(/\.\d{3}Z$/, 'Z'),
+    row.source,
+    row.asset,
+    formatCrypto(row.units),
+    formatCAD(row.pricePerUnit),
+    row.feeCAD > 0 ? formatCAD(row.feeCAD) : '—',
+    formatCAD(row.costCAD),
+    formatCAD(row.runningACB),
+    row.txId && row.txId !== '—' ? row.txId.substring(0, 10) + '…' : '—',
+  ]);
+
+  doc.autoTable({
+    startY: y,
+    margin: { left: margin, right: margin },
+    head: auditHead,
+    body: auditBody,
+    theme: 'grid',
+    headStyles: {
+      fillColor: [30, 41, 59],
+      textColor: [200, 210, 230],
+      fontStyle: 'bold',
+      fontSize: 6.5,
+      cellPadding: 3,
+      halign: 'center',
+    },
+    bodyStyles: {
+      fontSize: 6.5,
+      cellPadding: 2.5,
+      overflow: 'linebreak',
+    },
+    columnStyles: {
+      0: { cellWidth: 24 },                          // Date/Heure
+      1: { cellWidth: 14, halign: 'center' },         // Type
+      2: { cellWidth: 12, halign: 'center', fontStyle: 'bold' }, // Actif
+      3: { halign: 'right' },                         // Quantité
+      4: { halign: 'right' },                         // JVM Unit.
+      5: { halign: 'right' },                         // Frais
+      6: { halign: 'right' },                         // Montant Total
+      7: { halign: 'right', fontStyle: 'bold' },      // PBR Courant
+      8: { cellWidth: 22, fontSize: 5.5 },            // TxID
+    },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    didParseCell: function (data) {
+      // Color-code the Type column
+      if (data.section === 'body' && data.column.index === 1) {
+        if (data.cell.raw === 'Achat') {
+          data.cell.styles.textColor = [6, 182, 212];  // cyan
+        } else if (data.cell.raw === 'Staking') {
+          data.cell.styles.textColor = [16, 185, 129]; // green
+        }
+      }
+    },
+    // Re-draw header bar on continuation pages
+    didDrawPage: function (data) {
+      if (data.pageNumber > 1) {
+        const pg = doc.internal.getCurrentPageInfo().pageNumber;
+        doc.setFontSize(7);
+        doc.setFont('helvetica', 'italic');
+        doc.setTextColor(...gray);
+        doc.text(
+          `Cryptax — Journal des transactions (page ${pg})`,
+          pageW - margin, doc.internal.pageSize.getHeight() - 10,
+          { align: 'right' }
+        );
+      }
+    },
+  });
+  y = doc.lastAutoTable.finalY + 8;
+
+  // Audit trail footer
+  checkPage(12);
+  doc.setFontSize(6.5);
+  doc.setFont('helvetica', 'italic');
+  doc.setTextColor(...gray);
+  doc.text(`Total : ${auditRows.length} transactions enregistrées. JVM source : CoinGecko (CAD). Frais en CAD = frais crypto × JVM unitaire.`, margin, y);
 
   // ── Save ──
   doc.save('Cryptax_Rapport_Fiscal_2025.pdf');
